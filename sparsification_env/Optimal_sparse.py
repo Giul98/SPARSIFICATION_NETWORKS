@@ -204,50 +204,135 @@ def determine_k(graph, sparsity_level=0.1):   #sparsity_level: un valore che rap
     #Calcola il numero di archi da mantenere nel grafo come percentuale del numero totale di archi.
     return max(1, int(sparsity_level * num_edges))  # Almeno 1 collegamento
 
-def plot_graph(graph, title="Grafo"):
-    pos = nx.spring_layout(graph)  # Posizioni dei nodi
-    edge_labels = nx.get_edge_attributes(graph, 'weight')
-    nx.draw(graph, pos, with_labels=True, node_color='lightblue', arrows=True)
-    nx.draw_networkx_edge_labels(graph, pos, edge_labels=edge_labels)
+def plot_graph(graph, selected_edges=None, title="Graph"):
+    """
+    Visualizza un grafo utilizzando NetworkX e Matplotlib,
+    con gli archi selezionati evidenziati in rosso.
+    """
+    plt.figure(figsize=(10, 6))
+    pos = nx.spring_layout(graph, seed=42)  # Posizioni dei nodi
+
+    # Disegna i nodi
+    nx.draw_networkx_nodes(graph, pos, node_color="lightblue", node_size=500)
+
+    # Disegna tutti gli archi in grigio
+    nx.draw_networkx_edges(graph, pos, edge_color="gray", alpha=0.5)
+
+    # Evidenzia gli archi selezionati in rosso
+    if selected_edges:
+        nx.draw_networkx_edges(
+            graph,
+            pos,
+            edgelist=selected_edges,
+            edge_color="red",
+            width=2,
+            alpha=0.8,
+            label="Selected Edges"
+        )
+
+    # Disegna le etichette dei nodi
+    nx.draw_networkx_labels(graph, pos, font_size=10, font_color="black")
+
+    # Aggiungi titolo e legenda
     plt.title(title)
+    plt.legend()
     plt.show()
 
 
-def measure_execution_time(num_nodes, num_actions, sparsity_level):
-    max_in_degrees = []  # Numero massimo di archi in ingresso
-    execution_times = []  # Tempi di esecuzione
+def compare_graph_types():
+    """
+    Confronta il comportamento dell'algoritmo su diverse tipologie di grafi.
+    Visualizza sia i grafi originali che quelli sparsificati.
+    """
+    graph_types = {
+        "Erdős-Rényi": lambda n: create_erdos_renyi_graph(n, edge_prob=0.3),
+        "Barabási-Albert": lambda n: create_barabasi_albert_graph(n, edges_per_node=3),
+        "Watts-Strogatz": lambda n: nx.watts_strogatz_graph(n, k=4, p=0.3)
+    }
 
-    # Prova con diversi valori di edge_prob per variare il numero di archi in ingresso
-    for edge_prob in [0.1, 0.2, 0.3, 0.4, 0.5]:
-        # Genera il grafo
-        G = create_erdos_renyi_graph(num_nodes, edge_prob)
-        # Calcola il massimo grado in ingresso
-        max_in_degree = max(dict(G.in_degree()).values())
-        max_in_degrees.append(max_in_degree)
+    num_nodes = 50
+    sparsity_level = 0.3
+    num_actions = 50
 
-        # Genera il log delle propagazioni
+    results = []
+
+    for graph_name, graph_fn in graph_types.items():
+        G = graph_fn(num_nodes)
+        if graph_name == "Watts-Strogatz":
+            G = G.to_directed()  # Rendi Watts-Strogatz orientato
+        print(f"Testing {graph_name} graph with {len(G.edges)} edges.")
+
+        # Visualizza il grafo originale
+        plot_graph(G, title=f"{graph_name} - Original")
+
+        # Genera il log delle azioni
         log = generate_log_ic_model(G, num_actions)
 
-        # Calcola k
+        # Calcola le probabilità
+        p = compute_probabilities(G, log)
+
+        # Determina il valore di k
         k = determine_k(G, sparsity_level)
 
-        # Misura del tempo di esecuzione
-        start_time = time.time()
-        optimal_sparse_with_probabilities(G, k, log)
-        end_time = time.time()
+        # Calcolo del sottografo ottimale
+        best_likelihood, selected_edges = optimal_sparse_with_probabilities(G, k, log)
 
-        execution_time = end_time - start_time
-        execution_times.append(execution_time)
+        # Salva i risultati
+        results.append({
+            "Graph Type": graph_name,
+            "Edges": len(G.edges),
+            "Selected Edges": len(selected_edges),
+            "Log-Likelihood": best_likelihood
+        })
 
-        print(f"Edge prob: {edge_prob}, Max in-degree: {max_in_degree}, Time: {execution_time:.2f}s")
+        # Visualizza il grafo sparsificato
+        plot_graph(G, selected_edges, title=f"{graph_name} - Sparsified")
 
-    # Disegno del grafico
-    plt.figure(figsize=(10, 6))
-    plt.plot(max_in_degrees, execution_times, marker='o')
-    plt.xlabel("Numero massimo di archi in ingresso (d)")
-    plt.ylabel("Tempo di esecuzione (s)")
-    plt.title("Curva temporale dell'algoritmo in funzione degli archi in ingresso")
-    plt.grid(True)
+    # Stampa i risultati
+    for result in results:
+        print(f"\nGraph Type: {result['Graph Type']}")
+        print(f"  Original Edges: {result['Edges']}")
+        print(f"  Selected Edges: {result['Selected Edges']}")
+        print(f"  Log-Likelihood: {result['Log-Likelihood']:.4f}")
+
+
+def plot_execution_time():
+    """
+    Misura i tempi di esecuzione su grafi di diverse dimensioni con maggiore granularità.
+    """
+    node_counts = range(10, 40, 2)  # Numero di nodi da 10 a 30 con passo di 2
+    sparsity_level = 0.1  # Usa un livello di sparsità fisso per tutte le misurazioni
+    times = []
+
+    for num_nodes in node_counts:
+        # Creazione di un grafo casuale
+        G = create_erdos_renyi_graph(num_nodes, edge_prob=0.3)
+        k = determine_k(G, sparsity_level)
+
+        # Misura più volte per ridurre la varianza
+        total_time = 0
+        iterations = 5  # Esegui la misura 5 volte e fai la media
+        for _ in range(iterations):
+            start_time = time.time()
+            log = generate_log_ic_model(G, num_actions=50)  # Aggiungi la generazione del log
+            selected_edges = optimal_sparse_with_probabilities(G, k, log)[1]  # Usare la funzione corretta
+            end_time = time.time()
+            total_time += (end_time - start_time)
+
+        # Calcola la media del tempo
+        avg_time = total_time / iterations
+        times.append((num_nodes, avg_time))
+        print(f"Nodes: {num_nodes}, Avg Time: {avg_time:.4f}s")
+
+    # Grafico dei tempi di esecuzione
+    nodes, avg_times = zip(*times)  # Estrae i nodi e i tempi medi
+
+    plt.plot(nodes, avg_times, marker='o', label='Execution Time')
+    plt.title('Execution Time vs. Number of Nodes')
+    plt.xlabel('Number of Nodes')
+    plt.ylabel('Average Time (seconds)')
+    plt.legend()
+    plt.grid()
     plt.show()
 
 
@@ -255,7 +340,7 @@ def measure_execution_time(num_nodes, num_actions, sparsity_level):
 if __name__ == "__main__":
     num_nodes = 20
     edge_prob = 0.5
-    sparsity_level = 0.3
+    sparsity_level = 0.5
     num_actions = 50
 
     # Genera il grafo iniziale
@@ -284,7 +369,11 @@ if __name__ == "__main__":
         optimal_graph.add_edges_from(selected_edges)
 
         # Visualizza il sottografo ottimale
-        plot_graph(optimal_graph, title="Sottografo Ottimale")
+        plot_graph(G, selected_edges, title="Grafo Ottimale")
 
-    # Misura il tempo di esecuzione su diversi grafi
-    measure_execution_time(num_nodes, num_actions, sparsity_level)
+
+    #confronto l'algoritmo su diverse tipologie di grafi
+    compare_graph_types()
+
+    # Visualizza il grafico
+    plot_execution_time()
