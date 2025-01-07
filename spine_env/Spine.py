@@ -333,3 +333,4 @@ if __name__ == "__main__":
     # Testa la scalabilità
     print("\nTest di scalabilità:")
     test_scalability()
+

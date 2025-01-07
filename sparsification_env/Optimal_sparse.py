@@ -377,3 +377,4 @@ if __name__ == "__main__":
 
     # Visualizza il grafico
     plot_execution_time()
+
