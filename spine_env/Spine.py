@@ -65,8 +65,9 @@ def compute_probabilities(graph, log, max_iterations=100, tol=1e-5):
 
     return p_prev   #Restituisce il dizionario p_prev contenente le probabilità aggiornate p(u,v) per ogni arco
 
+
 def log_likelihood(graph, p, log):
-    """"
+    """
     Calcola la log-verosimiglianza di ogni arco nel grafo basandosi sul log delle azioni e sulle probabilità calcolate.
     """
     likelihood = {}
@@ -77,9 +78,18 @@ def log_likelihood(graph, p, log):
             if target != v:
                 continue
 
-            P_plus = 1 - np.prod([(1 - p.get((w, v), 0)) for w in influencers])   #probabilità che u sia influenzato da v
-            P_minus = np.prod([(1 - p.get((w, v), 0)) for w in influencers if w != u]) #probabilità che v non sia influenzato dagli altri nodi
-            likelihood[(u, v)] += np.log(max(P_plus, 1e-7)) + np.log(max(P_minus, 1e-7))  #per ogni argo somma i termini di log-likelihood
+            # Probabilità che u influenzi v
+            P_plus = 1 - np.prod([(1 - p.get((w, v), 0)) for w in influencers])
+            # Probabilità che v non sia influenzato dagli altri nodi, escluso u
+            P_minus = np.prod([(1 - p.get((w, v), 0)) for w in influencers if w != u])
+
+            # Correzione: aggiungi un termine di regolarizzazione per evitare log(0)
+            P_plus = max(P_plus, 1e-7)  # evitare log(0)
+            P_minus = max(P_minus, 1e-7)  # evitare log(0)
+
+            # Log-likelihood per l'arco
+            likelihood[(u, v)] += np.log(P_plus) + np.log(P_minus)  # somma dei log
+
     return likelihood
 
 
@@ -106,8 +116,9 @@ def measure_execution_time():
     """
     Misura i tempi di esecuzione del Spine Algorithm su grafi di diverse dimensioni con maggiore granularità.
     """
-    node_counts = range(10, 510, 10)  # Numero di nodi da 10 a 500 con passo di 10
-    sparsity_levels = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]  # Livelli di sparsità più dettagliati
+    # range di nodi 10, 20, 40, 80, 160, 320, 640, 1280, 2560
+    node_counts = [10, 20, 40, 80, 160, 320, 640, 1280, 2560]  # Nodi da analizzare
+    sparsity_levels = [0.1, 0.2, 0.4, 0.8]  # Livelli di sparsità
     times = []
 
     for num_nodes in node_counts:
@@ -132,12 +143,40 @@ def measure_execution_time():
 
     return times
 
+
+def plot_execution_times(times):
+    """
+    Disegna la curva temporale computazionale per dimostrare la complessità logaritmica.
+    """
+    # Converte i dati in un DataFrame per facilitare l'elaborazione
+    df = pd.DataFrame(times, columns=['Nodes', 'Sparsity', 'Time'])
+
+    plt.figure(figsize=(10, 6))
+    for sparsity in sorted(df['Sparsity'].unique()):
+        subset = df[df['Sparsity'] == sparsity]
+        plt.plot(
+            subset['Nodes'],
+            subset['Time'],
+            marker='o',
+            label=f'Sparsity {sparsity:.1f}'
+        )
+
+    plt.yscale('log')  # Usa scala logaritmica per evidenziare la crescita
+
+    # Dettagli del grafico
+    plt.title('Curva Temporale dell\'Algoritmo (Scala Logaritmica)')
+    plt.xlabel('Numero di Nodi')
+    plt.ylabel('Tempo di Esecuzione (s)')
+    plt.grid(True, which="both", linestyle='--', linewidth=0.5)
+    plt.legend(title='Livello di Sparsità')
+    plt.show()
+
 def test_scalability():
     """
     Testa la scalabilità dell'algoritmo per grafi di grandi dimensioni.
     """
     # Genera un grafo di dimensioni crescenti e valuta i tempi di esecuzione
-    node_counts = [100, 200, 500, 1000]
+    node_counts = [10,20,40,80,160,320,640,1280]
     edge_prob = 0.2
 
     for num_nodes in node_counts:
@@ -181,9 +220,11 @@ def generate_log_ic_model(graph, num_actions):
 
     return log
 
+
 def compare_graph_types_spine():
     """
-    Confronto del comportamento di Spine su diversi tipi di grafi.
+    Confronto del comportamento di Spine su diversi tipi di grafi, visualizzando il grafo originale
+    seguito dai grafi sparsificati con i livelli di sparsità richiesti, calcolando la log-likelihood.
     """
     graph_types = {
         "Erdős-Rényi": lambda n: nx.erdos_renyi_graph(n, p=0.3, directed=True),
@@ -191,53 +232,55 @@ def compare_graph_types_spine():
         "Watts-Strogatz": lambda n: nx.watts_strogatz_graph(n, k=4, p=0.3).to_directed(),
     }
 
-    num_nodes = 50
-    sparsity_level = 0.3
-    num_actions = 100
+    sparsity_levels = [0.1, 0.2, 0.4, 0.8]  # Livelli di sparsità
+    num_nodes = 50  # Eseguiamo il test su un grafo di 50 nodi
+    num_actions = 100  # Numero di azioni nel log
 
     results = []
 
     for graph_name, graph_fn in graph_types.items():
-        # Genera il grafo
+        print(f"Testing {graph_name} graph with {num_nodes} nodes.")
+
+        # Genera il grafo originale
         G = graph_fn(num_nodes)
-        print(f"Testing {graph_name} graph with {len(G.edges)} edges.")
+        print(f"Numero di archi originali: {len(G.edges)}")
 
-        # Genera il log delle azioni
-        log = generate_log_ic_model(G, num_actions)
+        # Calcola il log-likelihood per il grafo originale (massimo per il grafo completo)
+        log = generate_log_ic_model(G, num_actions)  # Genera il log delle azioni
+        p = compute_probabilities(G, log)  # Calcola le probabilità
+        original_likelihood = log_likelihood(G, p, log)
+        original_log_likelihood = sum(original_likelihood.values())  # Log-likelihood massima per il grafo originale
 
-        # Calcola le probabilità
-        p = compute_probabilities(G, log)
+        for sparsity_level in sparsity_levels:
+            # Determina il numero di archi da mantenere (k)
+            k = int(sparsity_level * len(G.edges))
 
-        # Determina il valore di k
-        k = determine_k(G, sparsity_level)
+            # Calcolo dei grafi sparsificati
+            selected_edges = spine_algorithm(G, k, p, log)
 
-        # Calcolo del sottografo ottimale
-        selected_edges = spine_algorithm(G, k, p, log)
+            # Calcola la log-likelihood per il grafo sparsificato (solo per gli archi selezionati)
+            sparsified_likelihood = {edge: original_likelihood[edge] for edge in selected_edges}
+            sparsified_log_likelihood = sum(sparsified_likelihood.values())
 
-        # Calcolo della log-likelihood totale degli archi selezionati
-        log_likelihood_total = sum(
-            log_likelihood(G, p, log).get(edge, 0) for edge in selected_edges
-        )
+            # Aggiungi i risultati, includendo anche la log-likelihood massima del grafo originale
+            results.append({
+                "Graph Type": graph_name,
+                "Selected Edges": len(selected_edges),
+                "Sparsified Log-Likelihood": sparsified_log_likelihood,
+                "Original Log-Likelihood": original_log_likelihood  # Aggiungi la log-likelihood massima
+            })
 
-        # Salva i risultati
-        results.append({
-            "Graph Type": graph_name,
-            "Original Edges": len(G.edges),
-            "Selected Edges": len(selected_edges),
-            "Log-Likelihood": log_likelihood_total
-        })
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 1000)
+    pd.set_option('display.max_rows', None)
 
-        # Visualizza il grafo iniziale
-        plot_graph(G, title=f"{graph_name} - Original")
-
-        # Visualizza il grafo sparsificato
-        plot_graph(G, selected_edges, title=f"{graph_name} - Sparsified")
-
-    # Tabella dei risultati
     df_results = pd.DataFrame(results)
-    print("\nConfronto tra tipi di grafi:")
-    print(df_results)
 
+
+    df_results = df_results[["Graph Type", "Selected Edges", "Sparsified Log-Likelihood", "Original Log-Likelihood"]]
+
+    # Stampa direttamente il dataframe dei risultati
+    print(df_results)
     return df_results
 
 
@@ -333,4 +376,3 @@ if __name__ == "__main__":
     # Testa la scalabilità
     print("\nTest di scalabilità:")
     test_scalability()
-

@@ -1,3 +1,5 @@
+#Optimal Sparse
+
 import networkx as nx
 import numpy as np
 from itertools import combinations, product
@@ -112,18 +114,34 @@ def fill_dp(graph, log, k, p):  # Aggiunto parametro p
     return DP
 
 
+def log_likelihood_original(graph, p, log):
+    """
+    Calcola la log-verosimiglianza del grafo originale usando le probabilità p(u, v) e il log delle azioni.
+    """
+    likelihood = 0
+
+    # Per ogni arco nel grafo, calcola la log-verosimiglianza
+    for u, v in graph.edges:
+        prob = p.get((u, v), 0.5)  # Ottieni la probabilità di esistenza dell'arco
+        if prob > 0:  # Evita log(0)
+            likelihood += np.log(prob)
+
+    return likelihood
+
+
+
 def greedy_allocation(graph, DP, k, p, threshold=1e-6):
     """
-    Esegue l'allocazione Greedy per selezionare gli archi ottimali basati sulla tabella DP.
+    Esegue l'allocazione per selezionare esattamente k archi ottimali basati sulla tabella DP.
     """
-    best_allocation = []   #Tiene traccia del numero ottimale di archi b selezionati per ciascun nodo.
-    selected_edges = []   #Lista degli archi effettivamente selezionati nel grafo finale.
-    total_weight = 0   #Somma totale dei valori λ associati alla selezione degli archi.
+    best_allocation = []   # Tiene traccia del numero ottimale di archi b selezionati per ciascun nodo.
+    selected_edges = []    # Lista degli archi effettivamente selezionati nel grafo finale.
+    total_weight = 0       # Somma totale dei valori λ associati alla selezione degli archi.
 
     for node in graph.nodes:
-        # il miglior numero di collegamenti (b) per il nodo
+        # Il miglior numero di collegamenti (b) per il nodo
         best_b = max(range(k + 1), key=lambda b: DP[node][b] if DP[node][b] is not None else -float('inf'))
-        best_allocation.append(best_b)  #salva il valore ottimale b nella lista
+        best_allocation.append(best_b)  # Salva il valore ottimale b nella lista
 
         # Seleziona solo gli archi con probabilità p(u,v) maggiore o uguale alla soglia threshold.
         # In questo modo si eliminano gli archi con probabilità trascurabili
@@ -131,24 +149,57 @@ def greedy_allocation(graph, DP, k, p, threshold=1e-6):
         valid_edges = [
             (u, v, data) for u, v, data in in_edges if p.get((u, v), 0) >= threshold
         ]
-        valid_edges_sorted = sorted(valid_edges, key=lambda edge: p.get((edge[0], edge[1]), 0), reverse=True)  #gli archi valiti vengono ordinati in ordine decrescente di probabilità
+        valid_edges_sorted = sorted(valid_edges, key=lambda edge: p.get((edge[0], edge[1]), 0), reverse=True)  # Gli archi validi vengono ordinati in ordine decrescente di probabilità
 
-        # selezione dei migliori b archi
+        # Seleziona solo i primi archi per rispettare il numero di archi selezionati
         selected_edges.extend(valid_edges_sorted[:best_b])
-        #Aggiungo il valore della funzione di log-similarity λ associato alla scelta del miglior b al peso totale.
+
+        # Limita il numero totale di archi selezionati a k
+        if len(selected_edges) > k:
+            selected_edges = selected_edges[:k]
+
+        # Aggiungi il valore della funzione di log-similarity λ associato alla scelta del miglior b al peso totale.
         total_weight += DP[node][best_b] if DP[node][best_b] is not None else -float('inf')
+
+    # Verifica che il numero di archi selezionati sia esattamente k
+    if len(selected_edges) != k:
+        print(f"Errore: il numero di archi selezionati ({len(selected_edges)}) non corrisponde a k ({k})")
 
     return total_weight, best_allocation, selected_edges
 
+# Calcolo della log-verosimiglianza del grafo originale (senza sparsificazione)
+def calculate_original_log_likelihood(graph, log, p):
+    original_likelihood = 0
+    for edge in graph.edges():
+        # Verifica e sostituisci con una probabilità di default se la probabilità è zero
+        edge_prob = p.get(edge, 1e-7)  # Imposta una probabilità di default
+        if edge_prob == 0:
+            edge_prob = 1e-7  # Assicurati che non sia zero
+        likelihood = np.log(edge_prob)  # Calcola il logaritmo della probabilità
+        original_likelihood += likelihood
+    return original_likelihood
+
 
 #trovo il sotto-grafo ottimale che massimizza la log-verosimiglianza, considerando il vincolo sui collegamenti totali.
-#
+def optimal_sparse_with_probabilities(graph, sparsity_level, log):
+    # Calcola il valore di k in base al livello di sparsità
+    k = determine_k(graph, sparsity_level)
 
-def optimal_sparse_with_probabilities(graph, k, log):
+    # Calcola le probabilità p(u, v) per il grafo
     p = compute_probabilities(graph, log)
-    DP = fill_dp(graph, log, k, p)  # Passa p come argomento
+
+    # Calcola la tabella DP per il grafo e le probabilità
+    DP = fill_dp(graph, log, k, p)
+
+    # Ottieni il sottografo ottimale
     best_likelihood, _, selected_edges = greedy_allocation(graph, DP, k, p)
+
+    # Verifica che il numero di archi selezionati corrisponda a k
+    if len(selected_edges) != k:
+        print(f"Errore: il numero di archi selezionati ({len(selected_edges)}) non corrisponde a k ({k})")
+
     return best_likelihood, selected_edges
+
 
 #tipologia di grafo utilizzato per i test
 def create_erdos_renyi_graph(num_nodes, edge_prob):
@@ -164,6 +215,18 @@ def create_barabasi_albert_graph(num_nodes, edges_per_node):
     for u, v in G.edges:
         G[u][v]['weight'] = np.random.rand()  # Peso casuale per ogni collegamento
     return G
+
+def create_watts_strogatz_graph(num_nodes, k=4, p=0.3):
+    """
+    Crea un grafo di Watts-Strogatz con num_nodes nodi,
+    k collegamenti per nodo e una probabilità di ri-collegamento p.
+    """
+    G = nx.watts_strogatz_graph(num_nodes, k, p)
+    G = G.to_directed()  # Rendi il grafo orientato
+    for u, v in G.edges:
+        G[u][v]['weight'] = np.random.rand()  # Peso casuale per ogni collegamento
+    return G
+
 
 #il log è il registro delle propagazioni; una lista di azioni osservate, dove ogni azione è rappresentata come una tupla:
 # (target,time,influencers); target: Il nodo influenzato ; time: Il momento dell'azione ; influencers: I nodi che possono aver influenzato il target
@@ -189,7 +252,6 @@ def generate_log_ic_model(graph, num_actions):
         # Scegli influencer casuali
         selected_influencers = np.random.choice(influencers, size=np.random.randint(1, len(influencers) + 1), replace=False)
 
-        # np.random.randint(1, 100): un timestamp casuale per l'azione
         log.append((target, np.random.randint(1, 100), list(selected_influencers)))
 
     return log
@@ -198,11 +260,12 @@ def generate_log_ic_model(graph, num_actions):
 La funzione determine_k calcola il valore di k, che rappresenta il numero di collegamenti (archi) 
 che si desidera mantenere nel grafo durante il processo di sparsificazione
 """
-def determine_k(graph, sparsity_level=0.1):   #sparsity_level: un valore che rappresenta il livello di sparsità desiderato, espresso come percentuale (ad esempio, 0.1 corrisponde al 10%).
+def determine_k(graph, sparsity_level=0.1):
 
     num_edges = len(graph.edges)
-    #Calcola il numero di archi da mantenere nel grafo come percentuale del numero totale di archi.
-    return max(1, int(sparsity_level * num_edges))  # Almeno 1 collegamento
+    k = int(sparsity_level * num_edges)  # Percentuale di archi da mantenere
+    k = max(k, 1)  # Assicurati di mantenere almeno 1 arco
+    return k
 
 def plot_graph(graph, selected_edges=None, title="Graph"):
     """
@@ -239,10 +302,10 @@ def plot_graph(graph, selected_edges=None, title="Graph"):
     plt.show()
 
 
-def compare_graph_types():
+def compare_graph_types_with_sparsity():
     """
-    Confronta il comportamento dell'algoritmo su diverse tipologie di grafi.
-    Visualizza sia i grafi originali che quelli sparsificati.
+    Confronta il comportamento dell'algoritmo su diverse tipologie di grafi
+    e livelli di sparsità. Visualizza sia i grafi originali che quelli sparsificati.
     """
     graph_types = {
         "Erdős-Rényi": lambda n: create_erdos_renyi_graph(n, edge_prob=0.3),
@@ -250,97 +313,114 @@ def compare_graph_types():
         "Watts-Strogatz": lambda n: nx.watts_strogatz_graph(n, k=4, p=0.3)
     }
 
-    num_nodes = 50
-    sparsity_level = 0.3
+    num_nodes = 30
     num_actions = 50
+    sparsity_levels = [0.1, 0.2, 0.4, 0.8]  # Diversi livelli di sparsità
 
     results = []
 
     for graph_name, graph_fn in graph_types.items():
+        # Crea il grafo originale
         G = graph_fn(num_nodes)
         if graph_name == "Watts-Strogatz":
             G = G.to_directed()  # Rendi Watts-Strogatz orientato
-        print(f"Testing {graph_name} graph with {len(G.edges)} edges.")
-
-        # Visualizza il grafo originale
-        plot_graph(G, title=f"{graph_name} - Original")
+        print(f"\nTesting {graph_name} graph with {len(G.edges)} edges.")
 
         # Genera il log delle azioni
         log = generate_log_ic_model(G, num_actions)
 
-        # Calcola le probabilità
+        # Calcola le probabilità p(u, v) per il grafo
         p = compute_probabilities(G, log)
 
-        # Determina il valore di k
-        k = determine_k(G, sparsity_level)
+        # Calcola la log-verosimiglianza del grafo originale (prima di modificare il grafo)
+        original_likelihood = calculate_original_log_likelihood(G, log, p)
+        print(f"Log-Likelihood del grafo originale: {original_likelihood:.4f}")
 
-        # Calcolo del sottografo ottimale
-        best_likelihood, selected_edges = optimal_sparse_with_probabilities(G, k, log)
+        # Visualizza il grafo originale
+        plot_graph(G, title=f"{graph_name} - Original")
 
-        # Salva i risultati
-        results.append({
-            "Graph Type": graph_name,
-            "Edges": len(G.edges),
-            "Selected Edges": len(selected_edges),
-            "Log-Likelihood": best_likelihood
-        })
+        for sparsity_level in sparsity_levels:
+            print(f"\nTesting sparsity level: {sparsity_level}")
 
-        # Visualizza il grafo sparsificato
-        plot_graph(G, selected_edges, title=f"{graph_name} - Sparsified")
+            # Genera il log delle azioni
+            log = generate_log_ic_model(G, num_actions)
+
+            # Determina il valore di k per questo livello di sparsità
+            k = determine_k(G, sparsity_level)
+
+            # Calcola il sottografo ottimale per questo livello di sparsità
+            best_likelihood, selected_edges = optimal_sparse_with_probabilities(G, sparsity_level, log)
+
+            # Visualizza il grafo sparsificato
+            plot_graph(G, selected_edges, title=f"{graph_name} - Sparsified (Sparsity = {sparsity_level})")
+
+            # Aggiungi i risultati
+            results.append({
+                "Graph Type": graph_name,
+                "Sparsity Level": sparsity_level,
+                "Edges": len(G.edges),
+                "Selected Edges": len(selected_edges),
+                "Log-Likelihood (Original)": original_likelihood,
+                "Log-Likelihood (Sparsified)": best_likelihood
+            })
 
     # Stampa i risultati
     for result in results:
-        print(f"\nGraph Type: {result['Graph Type']}")
+        print(f"\nGraph Type: {result['Graph Type']}, Sparsity Level: {result['Sparsity Level']}")
         print(f"  Original Edges: {result['Edges']}")
         print(f"  Selected Edges: {result['Selected Edges']}")
-        print(f"  Log-Likelihood: {result['Log-Likelihood']:.4f}")
-
+        print(f"  Log-Likelihood (Original): {result['Log-Likelihood (Original)']:.4f}")
+        print(f"  Log-Likelihood (Sparsified): {result['Log-Likelihood (Sparsified)']:.4f}")
 
 def plot_execution_time():
     """
-    Misura i tempi di esecuzione su grafi di diverse dimensioni con maggiore granularità.
+    Misura i tempi di esecuzione su grafi di diverse dimensioni e livelli di sparsità.
+    Ogni livello di sparsità sarà rappresentato da una linea distinta nel grafico.
+    Ora viene misurato il tempo di esecuzione una sola volta per ogni configurazione.
     """
-    node_counts = range(10, 40, 2)  # Numero di nodi da 10 a 30 con passo di 2
-    sparsity_level = 0.1  # Usa un livello di sparsità fisso per tutte le misurazioni
-    times = []
+    #node_counts = range(10, 80, 2)  # Numero di nodi da 10 a 30 con passo di 2
+    node_counts = [5,10,20,40,80,160,320,640,1280,2560,5120,10240,20480]
+    sparsity_levels = [0.1, 0.2, 0.4, 0.8]  # I vari livelli di sparsità da testare
+    all_times = {sparsity: [] for sparsity in sparsity_levels}  # Dizionario per memorizzare i tempi per ogni sparsità
 
-    for num_nodes in node_counts:
-        # Creazione di un grafo casuale
-        G = create_erdos_renyi_graph(num_nodes, edge_prob=0.3)
-        k = determine_k(G, sparsity_level)
+    for sparsity_level in sparsity_levels:
+        times = []  # Lista per memorizzare i tempi di esecuzione per un livello di sparsità
 
-        # Misura più volte per ridurre la varianza
-        total_time = 0
-        iterations = 5  # Esegui la misura 5 volte e fai la media
-        for _ in range(iterations):
+        for num_nodes in node_counts:
+            # Creazione di un grafo di Watts-Strogatz
+            G = create_watts_strogatz_graph(num_nodes, k=4, p=0.3)
+
+            # Misura il tempo di esecuzione per una sola iterazione
             start_time = time.time()
-            log = generate_log_ic_model(G, num_actions=50)  # Aggiungi la generazione del log
-            selected_edges = optimal_sparse_with_probabilities(G, k, log)[1]  # Usare la funzione corretta
+            log = generate_log_ic_model(G, num_actions=10)  # Aggiungi la generazione del log
+            best_likelihood, selected_edges = optimal_sparse_with_probabilities(G, sparsity_level, log)
             end_time = time.time()
-            total_time += (end_time - start_time)
 
-        # Calcola la media del tempo
-        avg_time = total_time / iterations
-        times.append((num_nodes, avg_time))
-        print(f"Nodes: {num_nodes}, Avg Time: {avg_time:.4f}s")
+            # Calcola il tempo di esecuzione per questa configurazione
+            execution_time = end_time - start_time
+            times.append(execution_time)
+            print(f"Sparsity: {sparsity_level}, Nodes: {num_nodes}, Time: {execution_time:.4f}s")
 
-    # Grafico dei tempi di esecuzione
-    nodes, avg_times = zip(*times)  # Estrae i nodi e i tempi medi
+        all_times[sparsity_level] = times
 
-    plt.plot(nodes, avg_times, marker='o', label='Execution Time')
-    plt.title('Execution Time vs. Number of Nodes')
+    # Grafico dei tempi di esecuzione per diversi livelli di sparsità
+    plt.figure(figsize=(10, 6))
+
+    # Disegna una linea per ciascun livello di sparsità
+    for sparsity_level, times in all_times.items():
+        plt.plot(node_counts, times, marker='o', label=f'Sparsity = {sparsity_level}')
+
+    plt.title('Execution Time vs. Number of Nodes for Different Sparsity Levels (Watts-Strogatz)')
     plt.xlabel('Number of Nodes')
-    plt.ylabel('Average Time (seconds)')
+    plt.ylabel('Execution Time (seconds)')
     plt.legend()
-    plt.grid()
+    plt.grid(True)
     plt.show()
-
 
 # Blocco principale
 if __name__ == "__main__":
     num_nodes = 20
     edge_prob = 0.5
-    sparsity_level = 0.5
     num_actions = 50
 
     # Genera il grafo iniziale
@@ -353,28 +433,33 @@ if __name__ == "__main__":
     # Genera il log delle azioni
     log = generate_log_ic_model(G, num_actions)
 
-    # Determina il valore di k
-    k = determine_k(G, sparsity_level)
+    # Ciclo per testare diversi livelli di sparsità
+    sparsity_levels = [0.1, 0.2, 0.4, 0.8]
+    for sparsity_level in sparsity_levels:
+        print(f"\nTesting sparsity level: {sparsity_level}")
 
-    # Calcolo del sottografo ottimale
-    best_likelihood, selected_edges = optimal_sparse_with_probabilities(G, k, log)
+        # Determina il valore di k per questo livello di sparsità
+        k = determine_k(G, sparsity_level)
+        print(f"Numero di archi da mantenere (k): {k}")
 
-    # Gestione del risultato
-    if not selected_edges:
-        print("Errore: Nessun arco significativo selezionato.")
-    else:
-        print(f"Log-verosimiglianza massima: {best_likelihood:.4f}")
-        print(f"Numero di collegamenti selezionati: {len(selected_edges)}")
-        optimal_graph = nx.DiGraph()
-        optimal_graph.add_edges_from(selected_edges)
+        # Calcolo del sottografo ottimale per questo livello di sparsità
+        best_likelihood, selected_edges = optimal_sparse_with_probabilities(G, sparsity_level, log)
 
-        # Visualizza il sottografo ottimale
-        plot_graph(G, selected_edges, title="Grafo Ottimale")
+        # Gestione del risultato
+        if not selected_edges:
+            print("Errore: Nessun arco significativo selezionato.")
+        else:
+            print(f"Log-verosimiglianza massima: {best_likelihood:.4f}")
+            print(f"Numero di collegamenti selezionati: {len(selected_edges)} (Atteso: {k})")
+            optimal_graph = nx.DiGraph()
+            optimal_graph.add_edges_from(selected_edges)
 
+            # Visualizza il sottografo ottimale
+            plot_graph(G, selected_edges, title=f"Grafo Ottimale (Sparsity = {sparsity_level})")
 
-    #confronto l'algoritmo su diverse tipologie di grafi
-    compare_graph_types()
+    # Esegui il confronto con diverse tipologie di grafi
+    compare_graph_types_with_sparsity()
 
-    # Visualizza il grafico
+    # Visualizza il grafico dei tempi di esecuzione
     plot_execution_time()
 
