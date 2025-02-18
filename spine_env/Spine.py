@@ -111,20 +111,31 @@ def spine_algorithm(graph, k, p, log):
 
     return selected_edges
 
+def create_watts_strogatz_graph(num_nodes, k=4, p=0.3):
+    """
+    Crea un grafo di Watts-Strogatz con num_nodes nodi,
+    k collegamenti per nodo e una probabilità di ri-collegamento p.
+    """
+    G = nx.watts_strogatz_graph(num_nodes, k, p)
+    G = G.to_directed()  # Rendi il grafo orientato
+    for u, v in G.edges:
+        G[u][v]['weight'] = np.random.rand()  # Peso casuale per ogni collegamento
+    return G
 
 def measure_execution_time():
     """
     Misura i tempi di esecuzione del Spine Algorithm su grafi di diverse dimensioni con maggiore granularità.
     """
     # range di nodi 10, 20, 40, 80, 160, 320, 640, 1280, 2560
-    node_counts = [10, 20, 40, 80, 160, 320, 640, 1280, 2560]  # Nodi da analizzare
+    node_counts = [10, 20, 40, 80, 160, 320, 640, 1280, 2560,5120,10240,20480]  # Nodi da analizzare
     sparsity_levels = [0.1, 0.2, 0.4, 0.8]  # Livelli di sparsità
     times = []
 
     for num_nodes in node_counts:
         for sparsity_level in sparsity_levels:
             # Creazione di un grafo casuale
-            G = nx.erdos_renyi_graph(num_nodes, p=0.3, directed=True)
+            #G = nx.erdos_renyi_graph(num_nodes, p=0.3, directed=True)
+            G = create_watts_strogatz_graph(num_nodes, k=4, p=0.3)
             k = int(sparsity_level * len(G.edges))
 
             # Misura più volte per ridurre la varianza
@@ -211,6 +222,9 @@ def compare_graph_types_spine():
         G = graph_fn(num_nodes)
         print(f"Numero di archi originali: {len(G.edges)}")
 
+        # Visualizza il grafo originale
+        plot_graph(G, title=f"{graph_name} - Grafo Originale")
+
         # Calcola il log-likelihood per il grafo originale (massimo per il grafo completo)
         log = generate_log_ic_model(G, num_actions)  # Genera il log delle azioni
         p = compute_probabilities(G, log)  # Calcola le probabilità
@@ -228,6 +242,8 @@ def compare_graph_types_spine():
             sparsified_likelihood = {edge: original_likelihood[edge] for edge in selected_edges}
             sparsified_log_likelihood = sum(sparsified_likelihood.values())
 
+            # Visualizza il grafo sparsificato
+            plot_graph(G, selected_edges, title=f"{graph_name} - Grafo Sparsificato (Sparsity {sparsity_level:.1f})")
 
             results.append({
                 "Graph Type": graph_name,
@@ -241,13 +257,11 @@ def compare_graph_types_spine():
     pd.set_option('display.max_rows', None)
 
     df_results = pd.DataFrame(results)
-
-
     df_results = df_results[["Graph Type", "Selected Edges", "Sparsified Log-Likelihood", "Original Log-Likelihood"]]
-
 
     print(df_results)
     return df_results
+
 
 
 def determine_k(graph, sparsity_level=0.1):
