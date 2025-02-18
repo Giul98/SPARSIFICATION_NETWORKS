@@ -144,37 +144,7 @@ def measure_execution_time():
     return times
 
 
-def plot_execution_times(times):
-    """
-    Disegna la curva temporale computazionale per dimostrare la complessità logaritmica.
-    """
-    # Converte i dati in un DataFrame per facilitare l'elaborazione
-    df = pd.DataFrame(times, columns=['Nodes', 'Sparsity', 'Time'])
-
-    plt.figure(figsize=(10, 6))
-    for sparsity in sorted(df['Sparsity'].unique()):
-        subset = df[df['Sparsity'] == sparsity]
-        plt.plot(
-            subset['Nodes'],
-            subset['Time'],
-            marker='o',
-            label=f'Sparsity {sparsity:.1f}'
-        )
-
-    plt.yscale('log')  # Usa scala logaritmica per evidenziare la crescita
-
-    # Dettagli del grafico
-    plt.title('Curva Temporale dell\'Algoritmo (Scala Logaritmica)')
-    plt.xlabel('Numero di Nodi')
-    plt.ylabel('Tempo di Esecuzione (s)')
-    plt.grid(True, which="both", linestyle='--', linewidth=0.5)
-    plt.legend(title='Livello di Sparsità')
-    plt.show()
-
 def test_scalability():
-    """
-    Testa la scalabilità dell'algoritmo per grafi di grandi dimensioni.
-    """
     # Genera un grafo di dimensioni crescenti e valuta i tempi di esecuzione
     node_counts = [10,20,40,80,160,320,640,1280]
     edge_prob = 0.2
@@ -194,10 +164,6 @@ def generate_log_ic_model(graph, num_actions):
     Genera un log di azioni per il modello IC, rispettando la struttura del grafo.
     Ogni azione è rappresentata come una tupla:
     (nodo bersaglio, timestamp, influenzatori).
-
-    :param graph: Grafo di input.
-    :param num_actions: Numero di azioni nel log.
-    :return: Lista di azioni.
     """
     log = []
     nodes = list(graph.nodes)
@@ -233,7 +199,7 @@ def compare_graph_types_spine():
     }
 
     sparsity_levels = [0.1, 0.2, 0.4, 0.8]  # Livelli di sparsità
-    num_nodes = 50  # Eseguiamo il test su un grafo di 50 nodi
+    num_nodes = 50  #  test su un grafo di 50 nodi
     num_actions = 100  # Numero di azioni nel log
 
     results = []
@@ -262,12 +228,12 @@ def compare_graph_types_spine():
             sparsified_likelihood = {edge: original_likelihood[edge] for edge in selected_edges}
             sparsified_log_likelihood = sum(sparsified_likelihood.values())
 
-            # Aggiungi i risultati, includendo anche la log-likelihood massima del grafo originale
+
             results.append({
                 "Graph Type": graph_name,
                 "Selected Edges": len(selected_edges),
                 "Sparsified Log-Likelihood": sparsified_log_likelihood,
-                "Original Log-Likelihood": original_log_likelihood  # Aggiungi la log-likelihood massima
+                "Original Log-Likelihood": original_log_likelihood
             })
 
     pd.set_option('display.max_columns', None)
@@ -279,7 +245,7 @@ def compare_graph_types_spine():
 
     df_results = df_results[["Graph Type", "Selected Edges", "Sparsified Log-Likelihood", "Original Log-Likelihood"]]
 
-    # Stampa direttamente il dataframe dei risultati
+
     print(df_results)
     return df_results
 
@@ -287,9 +253,6 @@ def compare_graph_types_spine():
 def determine_k(graph, sparsity_level=0.1):
     """
     Determina il valore di k, il numero massimo di archi da mantenere.
-    :param graph: Grafo di input.
-    :param sparsity_level: Percentuale di archi da mantenere (tra 0 e 1).
-    :return: Numero massimo di archi da mantenere (k).
     """
     num_edges = len(graph.edges)
     return max(1, int(sparsity_level * num_edges))  # Almeno 1 arco
